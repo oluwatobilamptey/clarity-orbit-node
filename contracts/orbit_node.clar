@@ -8,11 +8,13 @@
 (define-constant err-insufficient-stake (err u103))
 (define-constant err-no-rewards (err u104))
 (define-constant err-cooldown-active (err u105))
+(define-constant err-invalid-performance (err u106))
 (define-constant minimum-stake u1000)
-(define-constant reward-cooldown u144) ;; ~24 hours in blocks
-(define-constant performance-threshold u95) ;; 95% uptime threshold
-(define-constant base-reward-rate u10) ;; Base reward per block
-(define-constant performance-multiplier u2) ;; 2x multiplier for high performers
+(define-constant reward-cooldown u144)
+(define-constant performance-threshold u95)
+(define-constant base-reward-rate u10)
+(define-constant performance-multiplier u2)
+(define-constant max-performance u100)
 
 ;; Data Variables
 (define-data-var total-nodes uint u0)
@@ -28,7 +30,8 @@
     rewards: uint,
     last-update: uint,
     performance-score: uint,
-    last-reward: uint
+    last-reward: uint,
+    performance-history: (list 10 uint)
   }
 )
 
@@ -50,7 +53,8 @@
       (multiplier (if (>= performance performance-threshold) 
         performance-multiplier
         u1))
-      (reward-amount (* (* blocks-since-update base-reward-rate) multiplier))
+      (base-amount (* blocks-since-update base-reward-rate))
+      (reward-amount (/ (* base-amount multiplier) u100))
     )
     (ok reward-amount)
   )
@@ -74,7 +78,8 @@
       rewards: u0,
       last-update: block-height,
       performance-score: u100,
-      last-reward: block-height
+      last-reward: block-height,
+      performance-history: (list u100)
     })
     
     (map-set node-metadata caller {
@@ -96,38 +101,36 @@
       (caller tx-sender)
       (node (unwrap! (map-get? nodes caller) (err err-not-registered)))
     )
+    (asserts! (<= performance max-performance) (err err-invalid-performance))
+    (asserts! (<= uptime max-performance) (err err-invalid-performance))
+    
     (map-set nodes caller (merge node {
       uptime: uptime,
       performance-score: performance,
-      last-update: block-height
+      last-update: block-height,
+      performance-history: (unwrap-panic (as-max-len? 
+        (concat (get performance-history node) (list performance))
+        u10
+      ))
     }))
     (ok true)
   )
 )
 
-;; Calculate and claim rewards with performance incentives
-(define-public (claim-rewards)
+;; Update node metadata
+(define-public (update-metadata (name (string-ascii 50)) (endpoint (string-ascii 100)) (region (string-ascii 50)))
   (let
     (
       (caller tx-sender)
-      (node (unwrap! (map-get? nodes caller) (err err-not-registered)))
-      (blocks-since-reward (- block-height (get last-reward node)))
     )
-    (asserts! (>= blocks-since-reward reward-cooldown) (err err-cooldown-active))
-    (let
-      (
-        (reward-amount (unwrap! (calculate-rewards caller) (err err-no-rewards)))
-      )
-      (asserts! (> reward-amount u0) (err err-no-rewards))
-      (try! (as-contract (stx-transfer? reward-amount tx-sender caller)))
-      (map-set nodes caller (merge node { 
-        rewards: u0,
-        last-reward: block-height
-      }))
-      (ok reward-amount)
-    )
+    (asserts! (is-some (map-get? nodes caller)) (err err-not-registered))
+    (map-set node-metadata caller {
+      name: name,
+      endpoint: endpoint,
+      region: region
+    })
+    (ok true)
   )
 )
 
-;; Previous functions remain unchanged
-;; update-status, add-stake, get-node-info, get-node-metadata, get-total-nodes, get-total-staked
+[Previous functions remain unchanged]
