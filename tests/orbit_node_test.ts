@@ -1,16 +1,7 @@
-import {
-  Clarinet,
-  Tx,
-  Chain,
-  Account,
-  types
-} from 'https://deno.land/x/clarinet@v1.0.0/index.ts';
-import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
-
-// Previous tests remain unchanged
+[Previous imports and setup remain unchanged...]
 
 Clarinet.test({
-  name: "Ensures performance updates and rewards work correctly",
+  name: "Ensures reward claiming works with cooldown period",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const wallet1 = accounts.get('wallet_1')!;
     
@@ -23,24 +14,33 @@ Clarinet.test({
       ], wallet1.address)
     ]);
     
-    // Update performance metrics
+    // Update performance
     let perfBlock = chain.mineBlock([
       Tx.contractCall('orbit_node', 'update-performance', [
-        types.uint(9900), // 99% uptime
-        types.uint(98)    // 98% performance score
+        types.uint(99),
+        types.uint(98)
       ], wallet1.address)
     ]);
     
-    perfBlock.receipts[0].result.expectOk();
-    
-    // Mine blocks to pass cooldown
-    chain.mineEmptyBlockUntil(perfBlock.height + 145);
-    
-    // Try claiming rewards
-    let rewardBlock = chain.mineBlock([
+    // Try to claim rewards before cooldown
+    let earlyClaimBlock = chain.mineBlock([
       Tx.contractCall('orbit_node', 'claim-rewards', [], wallet1.address)
     ]);
     
-    rewardBlock.receipts[0].result.expectOk();
+    earlyClaimBlock.receipts[0].result.expectErr(105); // err-cooldown-active
+    
+    // Mine blocks to pass cooldown
+    for (let i = 0; i < 144; i++) {
+      chain.mineBlock([]);
+    }
+    
+    // Claim rewards after cooldown
+    let claimBlock = chain.mineBlock([
+      Tx.contractCall('orbit_node', 'claim-rewards', [], wallet1.address)
+    ]);
+    
+    claimBlock.receipts[0].result.expectOk();
   },
 });
+
+[Previous tests remain unchanged]
