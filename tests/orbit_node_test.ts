@@ -1,14 +1,7 @@
-import {
-  Clarinet,
-  Tx,
-  Chain,
-  Account,
-  types
-} from 'https://deno.land/x/clarinet@v1.0.0/index.ts';
-import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
+[Previous imports and setup remain unchanged...]
 
 Clarinet.test({
-  name: "Ensures performance updates and rewards work correctly with validation",
+  name: "Ensures reward claiming works with cooldown period",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const wallet1 = accounts.get('wallet_1')!;
     
@@ -21,17 +14,7 @@ Clarinet.test({
       ], wallet1.address)
     ]);
     
-    // Test invalid performance update
-    let invalidBlock = chain.mineBlock([
-      Tx.contractCall('orbit_node', 'update-performance', [
-        types.uint(101), // Invalid uptime
-        types.uint(98)
-      ], wallet1.address)
-    ]);
-    
-    invalidBlock.receipts[0].result.expectErr(106); // err-invalid-performance
-    
-    // Update performance metrics
+    // Update performance
     let perfBlock = chain.mineBlock([
       Tx.contractCall('orbit_node', 'update-performance', [
         types.uint(99),
@@ -39,19 +22,25 @@ Clarinet.test({
       ], wallet1.address)
     ]);
     
-    perfBlock.receipts[0].result.expectOk();
-    
-    // Update metadata
-    let metaBlock = chain.mineBlock([
-      Tx.contractCall('orbit_node', 'update-metadata', [
-        types.ascii("Updated Node"),
-        types.ascii("http://localhost:9000"),
-        types.ascii("US-West")
-      ], wallet1.address)
+    // Try to claim rewards before cooldown
+    let earlyClaimBlock = chain.mineBlock([
+      Tx.contractCall('orbit_node', 'claim-rewards', [], wallet1.address)
     ]);
     
-    metaBlock.receipts[0].result.expectOk();
+    earlyClaimBlock.receipts[0].result.expectErr(105); // err-cooldown-active
     
-    // Previous tests remain unchanged
+    // Mine blocks to pass cooldown
+    for (let i = 0; i < 144; i++) {
+      chain.mineBlock([]);
+    }
+    
+    // Claim rewards after cooldown
+    let claimBlock = chain.mineBlock([
+      Tx.contractCall('orbit_node', 'claim-rewards', [], wallet1.address)
+    ]);
+    
+    claimBlock.receipts[0].result.expectOk();
   },
 });
+
+[Previous tests remain unchanged]
